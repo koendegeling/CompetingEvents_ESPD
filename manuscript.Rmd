@@ -1,0 +1,31 @@
+---
+title: "manuscript"
+author: "Koen Degeling"
+date: "11/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# ESTIMATING EVENT-SPECIFIC PROBABILITIES AND DISTRIBUTIONS FROM CENSORED DATA FOR COMPETING EVENTS IN DISCRETE EVENT SIMULATIONS: A TUTORIAL
+
+## 1. Introduction
+
+Discrete event simulation (DES) is increasingly used to model disease, treatment, and logistical pathways in healthcare [ref recent review, ViH review]. As an individual-level or microsimulation modeling technique, and given its event-based handling of time and ability to account for resource capacity constraints, it is an effective and efficient technique for a range of decision problems [ref Marshall ViH]. The increased flexibility of DES compared to more traditional modeling techniques, such as state-transition modeling, also implies that more and different decisions may have to be made when implementing such a dynamic model. 
+
+One of the flexibilities that DES offers is that competing events can be implemented using different approaches. Four strategies to implement competing events in DES have been proposed: 1) sample times to each event and simulate the first event to occur, 2) sample the event first and the time-to-event second, 3) sample the time first and the event seconds, and 4) using discrete time cycles with transition probabilities [ref Barton]. The fourth approach resembles a discrete-time state-transition model and is typically not considered when implementing a DES. Each strategy can be implemented using a specific modeling approach, which defined the required data analysis and simulation steps. 
+
+Specific modeling approaches have been defined and compared for the first three strategies for uncensored data, with accuracy of the different approaches found to differ based on data characteristics, such as the number of competing events, overlap of time-to-event distributions, and sample size [ref Degeling MDM]. Strategies 1 and 3 have also be defined and compared for censored data, which additionally showed that the level of censoring also impacts the approaches accuracy [ref Degeling ViH]. However, although Strategy 2 was one of the best-performing for uncensored data and found to have a convenient evidence structure, no specific modeling approach for this strategy has been defined for censored data.
+
+This study defines and illustrates the event-specific probabilities and distributions (ESPD) modeling approach for censored data to implement competing events according to the "event first, time second" strategy, also providing both a Bayesian and frequentist implementation. Section 2 formally defines the ESPD modeling approach, Section 3 illustrates the accuracy of the approach in a simulation study, Section 4 demonstrates the application of the approach in a case study, and Section 5 concludes with a general discussion.
+
+## 2. Methods
+
+## 3. Simulation study
+
+## 4. Case study
+
+## 5. Discussion
+
