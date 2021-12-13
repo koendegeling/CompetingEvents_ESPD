@@ -1,0 +1,175 @@
+---
+title: "Competing events: the Bayesian way"
+output: html_notebook
+---
+
+```{r}
+library(data.table)
+library(cmdstanr)
+```
+
+
+## Motivation [to expand / change]
+
+- Very often we want to study the effect various changes (e.g. novel treatments, patient preferences, etc) might have, in order to ascertain the impact on the health system  
+- Given that at each step there is more than one potential outcome (e.g. progression, recurrence, death), we first need to model the complex process corresponding to competing risks 
+- Many approaches have been proposed, but ours is the absolute best 
+- We go Bayesian because this allows us to incorporate uncertainty about estimated parameters in a principled manner 
+- The typical simulation is a two-step process:
+  - Fit the model on existing data to obtain posterior estimates of all parameters 
+  - Sample from the resulting distribution to obtain a synthetic dataset
+
+
+## More on why be Bayesian? 
+
+- We want to incorporate our uncertainty about parameters underlying the data-generating process into subsequent simulation 
+- ... 
+
+## Assumptions
+
+* For every individual, there are $K$ (for simplicity, in the sequel we let $K=2$) independent competing risks processes 
+* Events happen in some proportion, characterised by the mixing distribution $\{\pi_k(X^{\pi}\}_{k=1}^K$, which is allowed to depend on some covariates (e.g. stage at diagnosis) -- in the sequel we often drop this dependence in order to simplify notation and write $\pi_k$  
+* Each risk process has its own set of parameters (e.g. shape/scale) and features that may affect it (with associated adjustment coefficients) 
+* For censored data we don't know which event will happen, but we can still
+  - Estimate the posterior probability of type $k$ event happening 
+  - Construct possible scenarios by "mixing" samples from the tails of corresponding risk processes 
+
+## Data generating process: 
+
+* Sample the event type $D$: $\mathbf{P}(D = k) = \pi_k, \sum_{k=1}^K \pi_k = 1$, where $K$ is the number of competing risks 
+* Sample time to event $T$ from the corresponding distribution: $\mathbf{P}(T < t|D = k) = \mathcal{W}(t, \theta_k)$, where $\theta_k$ is the vector of parameters associated with that event type, and $\mathcal{W}$ is Weibull cdfs
+
+## Simulation
+
+In order to incorporate covariates in the model, we use the following parametrisation: 
+$$
+f(y_i|\alpha,\sigma_i) =
+\frac{\alpha}{\sigma_i}\left(\frac{y_i}{\sigma_i}\right)^{\alpha-1}e^{-(y_i/\sigma_i)^{\alpha}}
+$$
+where $\alpha$ is the shape parameter and $\sigma_i$ is the scale parameter -- the latter is allowed to depend on individual features. The average survival time goes up with increasing $\sigma_i$ -- the *scale* on which events happen. To incorporate covariates, the scale parameter is defined as follows:
+$$
+\sigma_{i} = \exp{\left( - \frac{\mu + X_{i}^{T}\beta}{\alpha} \right)}
+$$
+First we define some miscellaneous functions: 
+```{r}
+sample_weibull <- function(alpha, mu, beta, x, n = 1) {
+    sig <- exp(-(mu + beta %*% x) / alpha)
+    return(rweibull(n = n, shape = alpha, scale = sig))
+}
+
+softmax <- function(x){
+  return(exp(x) / sum(exp(x)))
+}
+
+n_sim = 2000
+df <- data.table(age   = rnorm(n = n_sim, mean = 60, sd = 5) - 60, stage = sample(x = c('IA', 'IB', 'II'), size = n_sim, replace = TRUE))
+
+df <- dcast(df, age~stage, value.var = "stage", fun.aggregate = length)
+
+```
+
+Setting parameters for the simulation 
+```{r}
+pars <- list(
+  data = df,
+  theta = c('Intercept' = -0.4, 'IB' = 0.4, 'II' = 0.8),
+  alphas = c(2, 1.2),
+  mus = c(-4, -3.5),
+  betas = list(
+    c('IB' = -0.4, 'II' = -1.2),
+    c('age' = 0.1)
+  )
+)
+```
+
+The helper function: 
+
+- Input: dataframe with covariates, *golden* parameters for the simulation, censoring rate
+- Output: 
+  - dataframe with generated (and appropriately censored) times
+  - a list with corresponding Stan data 
+```{r}
+simESPD <- function(df, pars, censoring_rate = NULL) {
+  
+  # Adding intercept for convenience 
+  df.tmp = df[, "Intercept" := rep(1, .N)]
+  
+  D = length(pars$betas)
+  
+  # Calculate mixture proportions -- given dependence on covariates it's individual 
+  theta = t(apply(as.matrix(df.tmp[,.SD, .SDcols = names(pars$theta)]) %*% t(rbind(as.numeric(pars$theta), 0)), 1, softmax))
+  # Generate event based on proportions above 
+  df.tmp[, event := apply(theta, 1, \(x) sample(1:D, 1, prob = x))]
+  # List of feature matrices -- could be different for different risk processes 
+  l.X = lapply(pars$betas, \(x) as.matrix(df.tmp[, .SD, .SDcols = names(x)]))
+  # Generate times: only the time for the event that *happened* is generated 
+  df.tmp[, ":="(t = sapply(1:nrow(df.tmp),  \(i) sample_weibull(pars$alphas[df.tmp[["event"]][i]], pars$mus[df.tmp[["event"]][i]], 
+                                            as.numeric(pars$betas[[df.tmp[["event"]][i]]]), l.X[[df.tmp[["event"]][i]]][i,])))]
+  # Sample a censoring time, if censor_rate provided
+  if(!is.null(censoring_rate)) {
+    df.tmp[ , time_cens := rexp(.N, rate = censoring_rate)]
+    df.tmp[ , `:=` (
+      event = fifelse(time_cens < t, 0, event),
+      t  = fifelse(time_cens < t, time_cens, t)
+    )]
+    cat('\nProportion of observations that are censored:', mean(df.tmp$event == 0), '\n\n')
+  }
+  # Flatten all the feature matrices to pass as one to Stan 
+  # Additionally save corresponding dimensions 
+  X = do.call(cbind, l.X)
+  cov.dims = matrix(nrow = length(l.X), ncol = 2)
+  cov.dims[1,] = c(1, ncol(l.X[[1]]))
+  for (i in 2:nrow(cov.dims)){
+    cov.dims[i,] = c(cov.dims[i-1,2]+1, cov.dims[i-1,2] + ncol(l.X[[i]]))
+  }
+  # Assemble Stan data 
+  data.stan = list(
+    N = nrow(df.tmp),
+    D = length(pars$betas),
+    y = df.tmp[["t"]],
+    event = df.tmp[["event"]],
+    Xprop = as.matrix(df.tmp[,.SD, .SDcols = names(pars$theta)]),
+    K = length(pars$theta),
+    cov_dims = cov.dims,
+    M = ncol(X),
+    X = X
+  )
+  # Return both 
+  return(list(sim = df.tmp, dat.stan = data.stan))
+}
+```
+
+
+```{r}
+dat.sim = simESPD(df, pars = pars, censoring_rate = 0.1)
+mod.cr = cmdstan_model(stan_file = "weibull_mix_cov.stan")
+```
+
+```{r}
+# We leave one core out of the 
+options(mc.cores = parallel::detectCores() - 1)
+
+fit.cr <- mod.cr$sample(
+  data = dat.sim$dat.stan,
+  #seed = 123,
+  chains = 4,
+  parallel_chains = getOption("mc.cores", 1),
+  refresh = 25,
+  max_treedepth = 10,
+  adapt_delta = 0.99,
+  iter_warmup = 1000,
+  iter_sampling = 1000
+)
+```
+
+
+Let's look at the posterior distribution for all the parameters: 
+```{r}
+bayesplot::mcmc_hist(fit.cr$draws(c("alpha", "mu", "beta_pi_raw", "beta")))
+```
+
+Let's get (mean) posterior probability of each event happening for those who haven't experienced one yet 
+```{r}
+pr = matrix(apply(fit.cr$draws("pr"), 3, mean), ncol = length(pars$betas))[df.tmp[["event"]] == 0,]
+```
+
