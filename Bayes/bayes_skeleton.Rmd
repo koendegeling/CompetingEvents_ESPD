@@ -1,6 +1,8 @@
 ---
-title: "Competing events: the Bayesian way"
-output: html_notebook
+title: 'Competing events: the Bayesian way'
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r}

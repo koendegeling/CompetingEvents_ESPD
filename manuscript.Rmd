@@ -13,17 +13,84 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## 1. Introduction
 
-Discrete event simulation (DES) is increasingly used to model disease, treatment, and logistical pathways in healthcare [ref recent review, ViH review]. As an individual-level or microsimulation modeling technique, and given its event-based handling of time and ability to account for resource capacity constraints, it is an effective and efficient technique for a range of decision problems [ref Marshall ViH]. The increased flexibility of DES compared to more traditional modeling techniques, such as state-transition modeling, also implies that more and different decisions may have to be made when implementing such a dynamic model. 
+Discrete event simulation (DES) is increasingly used to model disease, treatment, and logistical pathways in health care [ref recent review, ViH review]. As an individual-level or microsimulation modeling technique, and given its event-based handling of time and ability to account for resource capacity constraints, it is an effective and efficient technique for a range of decision problems [ref Marshall ViH]. The increased flexibility of DES compared to more traditional modeling techniques, such as state-transition modeling, also implies that more and different decisions may have to be made when implementing such a dynamic model. 
 
-One of the flexibilities that DES offers is that competing events can be implemented using different approaches. Four strategies to implement competing events in DES have been proposed: 1) sample times to each event and simulate the first event to occur, 2) sample the event first and the time-to-event second, 3) sample the time first and the event seconds, and 4) using discrete time cycles with transition probabilities [ref Barton]. The fourth approach resembles a discrete-time state-transition model and is typically not considered when implementing a DES. Each strategy can be implemented using a specific modeling approach, which defined the required data analysis and simulation steps. 
+One of the flexibilities that DES offers is that competing events can be implemented using different approaches. Four strategies to implement competing events in DES have been proposed: 1) sample times to each event and simulate the first event to occur, 2) sample the event first and the time-to-event second, 3) sample the time first and the event seconds, and 4) using discrete time cycles with transition probabilities [ref Barton]. The fourth approach resembles a discrete-time state-transition model and is typically not considered when implementing a DES. Each strategy can be implemented using a specific modeling approach, which specifies the data analysis framework and required simulation steps. 
 
-Specific modeling approaches have been defined and compared for the first three strategies for uncensored data, with accuracy of the different approaches found to differ based on data characteristics, such as the number of competing events, overlap of time-to-event distributions, and sample size [ref Degeling MDM]. Strategies 1 and 3 have also be defined and compared for censored data, which additionally showed that the level of censoring also impacts the approaches accuracy [ref Degeling ViH]. However, although Strategy 2 was one of the best-performing for uncensored data and found to have a convenient evidence structure, no specific modeling approach for this strategy has been defined for censored data.
+Specific modeling approaches have been defined and compared for the first three strategies for uncensored data, with accuracy of the different approaches found to differ based on data characteristics, such as the number of competing events, overlap of time-to-event distributions, and sample size [ref Degeling MDM]. Strategies 1 and 3 have also be defined and compared for censored data, which additionally showed that the level of censoring impacts the accuracy of the approaches [ref Degeling ViH]. However, although Strategy 2 was one of the best-performing for uncensored data and found to have a convenient evidence structure, no specific modeling approach for this strategy has been defined for censored data.
 
-This study defines and illustrates the event-specific probabilities and distributions (ESPD) modeling approach for censored data to implement competing events according to the "event first, time second" strategy, also providing both a Bayesian and frequentist implementation. Section 2 formally defines the ESPD modeling approach, Section 3 illustrates the accuracy of the approach in a simulation study, Section 4 demonstrates the application of the approach in a case study, and Section 5 concludes with a general discussion.
+This study defines and illustrates the event-specific probabilities and distributions (ESPD) modeling approach for censored data to implement competing events according to the "event first, time second" strategy, also providing both a Bayesian and frequentist implementation of the approach in R. Section 2 formally defines the ESPD modeling approach, Section 3 illustrates the accuracy of the approach in a simulation study, Section 4 demonstrates the application of the approach in a case study, and Section 5 concludes with a general discussion.
+
 
 ## 2. Methods
 
+We follow standard notation for survival analyses, where $T$ is the event time or censoring time, a continuous random variable that is distributed according to a particular probability density function $f(t)$, with cumulative distribution function $F(t)$ and survival function $S(t)$ defined as:
+$$F(t) = \mathbf{P}(T≤t) = \int_0^{t}f(x)dx$$
+$$S(t) = \mathbf{P}(T>t) = 1-F(t) = \int_t^{\infty}f(x)dx$$
+To extend this to a competing risks setting, let $K={1,\dots,k}$ be the index set for $k$ mutually exclusive independent competing events, and let $C_j$ be the event indicator that indicates whether person $i, i=1,\dots,n$ experienced event $j,j=1,\dots,k$ ($c_{ij}=1$) or not ($c_{ij}=0$).
+
+The ESPD approach is based on the second strategy introduced in the Introduction: first sample the event that will occur and then, conditional on the event that will occur, sample the time at which that event will occur. The event is samples using event-specific probabilities or cumulative incidences, whereas the time at which the event will occur is sampled from a time-to-event distribution. Estimation of these event-specific probabilities and distributions is straightforward for uncensored data, as the data can be stratified according to the event that was observed [ref Degeling MDM]. However, for uncensored data, the individuals that are censored, i.e. for which no event has been observed yet, cannot be allocated to an event as it is not yet known which event they will experience.
+
+To estimate the event-specific probabilities and distributions from censored data, we define the event-specific probabilities $\mathbf{P}(C_j=1)=\pi_j$ and $\sum_{j=1}^{k}=1$, and the conditional event-specific time-to-event distributions $\mathbf{P}(T<t|C_j=1)=F_j(t)$. Note that $F_j(t)$ can be parameterised according to a specific distribution type, such a the Weibull distribution with $F_j(t) = \mathcal{W}(t,\theta_j)$, where $\theta_j$ is the vector of distribution parameters associated with that event type. Also note that $\pi$ and $\theta$ are allowed to depend on some covariates $X$ as in standard multivariable modeling. For example, $\pi$ can be modeled as in logistical regression:
+$$\log\left(\frac{\pi}{1-\pi}\right)={\alpha}X$$
+Or the shape and scale parameters of the Weibull distribution can be modeled on log-scale:
+$$\theta=\exp({\beta}X)$$
+
+The parameters $\pi$ and $\theta$ (and $\alpha$ and $\beta$ when accounting for heterogeneity) can be estimated by maximum likelihood. Denoting $\pi=(\pi_1,\dots,\pi_k)$ and $\theta=(\theta_1,\dots,\theta_k)$, and for $k=2$, we go over the data points $\{x_i\}_{i=1}^{n}$, where $x_i=(t, c_1, c_2)$:
+
+* If we see an uncensored entry for which, for example, event $1$ was observed ($c_1=1$), then the likelihood $\mathbf{P}(x_i|\pi,\theta)=\pi_1F_1(t,\theta_1)$, where cumulative distribution function $F_1(t,\theta_1)$ is specified according to a certain parametric distribution type (e.g., Weibull).
+* If we see a censored entry with all $c_j=0$, it is only know that regardless of the event that will occur, it will occur later, namely $\mathbf{P}(x_i|\pi,\theta)=\sum_{j=1}^{k}\pi_j(1-F_j(t,\theta_j))$
+
+For $k=2$, this yields the following likelihood function that can be used to estimate the parameters:
+
+$$\mathbf{P}(x_i|\pi,\theta)=\big(\pi_1F_1(t,\theta_1)\big)^{(c_1=1)}\times\big(\pi_2F_2(t,\theta_2)\big)^{(c_2=1)}\times\bigg(\sum_{j=1}^{k}\pi_j(1-F_j(t,\theta_j))\bigg)^{\sum_{j=1}^kc_j=0}$$
+
+Or for any number of $k$ competing risks:
+$$\mathbf{P}(x_i|\pi,\theta)=\prod_{j=1}^k\big(\pi_jF_j(t,\theta_j)\big)^{(c_j=1)}\times\bigg(\sum_{j=1}^{k}\pi_j(1-F_j(t,\theta_j))\bigg)^{\sum_{j=1}^kc_j=0}$$
+
+A step-by-step illustration of manually implementing the routine is provided for the case study in Section 4. We also provide both a Bayesian and frequentist R [ref R] implementation of this likelihood-based parameter estimation routine with this manuscript. A Bayesian implementation inherently captures parameter uncertainty (i.e., second-order uncertainty) through the posterior distributions, which can be used directly to inform parameter values in a probabilistic analysis of the (health economic) simulation model [ref ???]. Using the frequentist implementation, parameter uncertainty can be quantified through non-parametric bootstrapping or by sampling from multivariate normal distributions based on the variance-covariance matrix [ref Degeling BMC Med Res Methodol]. 
+
 ## 3. Simulation study
+
+A simulation study was performed to verify the accuracy or performance of the ESPD modeling approach. Note that a comprehensive simulation study in which the performance of the ESPD approach is compared to that of other modeling approaches, is not feasible within the scope of this tutorial.
+
+A hypothetical scenario was considered where there were $k=2$ competing events: 1) progression (progr) and 2) death before progression (death). Simulated patients had equal probabilities of having stage IA, IB, or II disease, and their age was normally distributed with mean 60 years and a standard deviation of 5 (normalized to mean 0). The true parameter values used to simulate the population where:
+$$\log\left(\frac{\pi_{progr}}{1-\pi_{progr}}\right)=-0.4+0.4stageIB+0.8stageII$$
+$$F_{progr}(t,\theta_{progr})=Weibull\big(t, \theta_{progr}^{shape}=exp(0.7), \theta_{progr}^{scale}=exp(2-0.2stageIB-0.6stageII)\big)$$
+$$F_{death}(t,\theta_{death})=Gompertz\big(t, \theta_{death}^{shape}=0.1, \theta_{death}^{rate}=exp(-3.5+0.1age)\big)$$
+
+Based on these true parameters, a population ($s_{pop}$) of $n_{sim}=1,000,000$ individuals was simulated. Subsequently, the performance of the ESPD approach was assessed for a range of scenarios defined by the proportion of censored observations ($p_{censored}=0.0, 0.1, 0.3, 0.6$) and sample sizes ($n_{sample}=50, 100, 200, 500$) using the following procedure:
+
+* For all combinations of $p_{censored}$ and $n_{sample}$:
+  * For $n_{run}=5,000$ iterations:
+    * Draw a sample $s_{uncensored}$ from population $s_{pop}$ according to $n_{sample}$
+    * Censor sample $s_{uncensored}$ according to $p_{censored}$ to obtain sample $s_{censored}$
+    * Analyze $s_{censored}$ according to the ESPD approach
+    * Based on the estimated parameters, simulate a new sample $s_{sim}$ of size $n_{sim}$
+    * Assess the performance by comparing the outcomes of $s_{sim}$ to the population $s_{pop}$
+    
+Censoring was performed through an independent process where censoring times were sampled from an exponential distribution defined by a censoring rate. If the sampled censoring time was lower than that of the event, the observation was censored at the censoring time. The censoring rate was increased incrementally until the required proportion of censored observations was achieved.
+
+The performance of the approach was assessed with regard to the probability of progression, as well as the mean and distribution of the time-to-progression and time-to-death. The performance in terms of the event probability and mean time-to-events was quantified using a range of error measures (lower is better):
+
+* Error ($E$) or bias: $E = sim - pop$
+* Absolute error ($AE$): $AE = |sim - pop|$
+* Relative error ($RE$): $RE = \frac{sim - pop}{pop}$
+* Relative absolute error ($RAE$): $RAE = \frac{|sim - pop|}{pop}$
+
+The performance in terms of the distributions of the time-to-events was quantified using the Kullback-Leibler divergence ($KLD$) or relative entropy, which is a measure of the distance between probability distributions (lower is better):
+
+$$KLD\big(f_{pop}(t)|f_{sim}(t)\big)=\int_0^{\infty}f_{pop}(x)\log\left(\frac{f_{pop}(x)}{f_{sim}(x)}\right)dx=\int_0^{\infty}f_{pop}(x)\times\bigg(\log\big(f_{pop}(x)\big)-\log\big(f_{sim}(x)\big)\bigg)dx$$
+
+Given that none of the performance measures considers second-order uncertainty, and given that the frequentist implementation is more computationally efficient in obtaining point-estimates compared to the Bayesian implementation, the former was used in the simulation study. Although the Bayesian implementation is illustrated for the case study (Section 4), a formal comparison of the two implementations is not feasible within the scope of this tutorial.
+
+Detailed results of the simulation study are available in the Supplementary Material. Overall, the ESPD approach performed well. In general, higher proportions of censoring and lower sample sizes both negatively impacted the accuracy of the approach with regard to all performance measures.
+
+With regard to the event probability, on average there was basically no error in the E or RE up to 30% censoring. For 60% censoring, the RE ranged from -0.02 (95% confidence interval: -0.15; 0.12) for sample size 500, to 0.05 (-0.45; 0.66) for size 50. The average ARE ranged from 0.04 (0.00; 0.10) for multiple scenarios, to 0.23 (0.01; 0.66) for 60% censoring and size 50.
+
+Regarding the mean time-to-event, similar as for the event probability, on average there was basically no error in the E or RE up to 30% censoring. For 60% censoring, unrealistic results were obtained for sample size 50. Other than that, the average RE ranged from 0.01 (-0.13; 0.15) for time-to-progression and size 500, to 0.20 (-0.30; 1.09) for time-to-progression and size 100. Excluding the scenario of 60% censoring and size 50, the average ARE ranged from 0.03 (0.00; 0.07) for multiple scenarios, to 0.33 (0.01; 1.09) for time-to-progression under 60% censoring and for size 100.
+
+In terms of the $KLD$, similar trends were observed. The $KLD$ ranged from 0.03 (0.01; 0.05) for multiple scenarios, to 0.51 (0.03; 3.17) for time-to-death under 60% censoring and for size 50.
 
 ## 4. Case study
 

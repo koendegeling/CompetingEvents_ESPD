@@ -14,25 +14,29 @@
 # - R           v4.0.3
 # - data.table  v1.14.0
 # - flexsurv    v2.0
+# - flexmix     v2.3-17
+# - parallel    v4.0.3
 
 
-### 1. INITIALIZATION ----
+## 1. INITIALIZATION ----
 
 # Uncomment to clear the Global Environment and console
-#rm(list = ls()); gc(); cat('\14')
+rm(list = ls()); gc(); cat('\14')
 
 # Packages
 library(data.table)   # efficient data wrangling
 library(flexsurv)     # survival analysis functions
+library(flexmix)      # Kullback-Leibler divergence
+library(parallel)     # running analyses in parallel
 
 # Custom function for the frequentist implementation of the ESPD approach
 source(file = 'R_functions/ESPD_frequentist.R')
 
 
 
-### 2. DATA SIMULATION FUNCTION ----
+## 2. DATA SIMULATION FUNCTION ----
 
-simESPD <- function(pars, n_sim = 500, censoring_rate = NULL, seed = 123) {
+simESPD <- function(pars, n_sim = 500, seed = 123) {
   
   set.seed(seed)
   
@@ -62,17 +66,7 @@ simESPD <- function(pars, n_sim = 500, censoring_rate = NULL, seed = 123) {
     time2 = rgompertz(.N, shape2, rate2)
   )]
   df[ , time := fifelse(event=='progress', time1, time2)]
-  
-  # Sample a censoring time, if censor_rate provided
-  if(!is.null(censoring_rate)) {
-    df[ , time_cens := rexp(.N, rate = censoring_rate)]
-    df[ , `:=` (
-      event = fifelse(time_cens < time, 'censored', event),
-      time  = fifelse(time_cens < time, time_cens, time)
-    )]
-    cat('\nProportion of observations that are censored:', mean(df$event == 'censored'), '\n\n')
-  }
-  
+
   out <- list(
     time    = df$time,
     event   = df$event,
@@ -84,10 +78,51 @@ simESPD <- function(pars, n_sim = 500, censoring_rate = NULL, seed = 123) {
   
 }
 
+censorEPSD <- function(obj, p_censoring = 0, start_censoring_rate = NULL, step_censoring_rate = 0.001, seed = 123) {
+  
+  set.seed(seed)
+  
+  df <- data.table(
+    time  = obj$time,
+    event = obj$event
+  )
+  
+  # Censor the sample by increasing the censoring rate until the desired level is reached
+  n_steps        <- 0
+  p_censored     <- 0
+  censoring_rate <- if(is.null(start_censoring_rate)) {step_censoring_rate} else {start_censoring_rate}
+  while(p_censored < p_censoring) {
+    
+    n_steps <- n_steps + 1
+    censoring_rate <- censoring_rate + step_censoring_rate
+    
+    df_cens <- copy(df)
+    df_cens[ , time_cens := rexp(.N, rate = censoring_rate)]
+    df_cens[ , `:=` (
+      event = fifelse(time_cens < time, 'censored', event),
+      time  = fifelse(time_cens < time, time_cens, time)
+    )]
+    
+    p_censored <- mean(df_cens$event == 'censored')
+    
+    if(n_steps == 1 & p_censored > p_censoring) censoring_rate <- 0
+    
+  }
+  
+  cat('\nProportion of observations', round(p_censored, digits = 2), 'censored in', n_steps, 'steps using a censoring rate of', round(censoring_rate, digits = 4), '\n\n')
+  
+  out <- list(
+    time    = df_cens$time,
+    event   = df_cens$event,
+    X_age   = obj$X_age,
+    X_stage = obj$X_stage
+  )
+  
+  return(out)  
+}
 
 
-
-### 3. SIMULATIONS ----
+## 3. TEST SIMULATIONS ----
 
 # True parameter values
 pars <- list(
@@ -99,19 +134,19 @@ pars <- list(
 )
 
 # Simulate datasets
-df_0  <- simESPD(pars = pars, n_sim = 10^4)
-df_10 <- simESPD(pars = pars, n_sim = 10^4, censoring_rate = 0.0135)
-df_30 <- simESPD(pars = pars, n_sim = 10^4, censoring_rate = 0.0459)
-df_60 <- simESPD(pars = pars, n_sim = 10^4, censoring_rate = 0.1472)
+ESPD_0  <- simESPD(pars = pars, n_sim = 10^4)
+ESPD_10 <- censorEPSD(obj = ESPD_0, p_censoring = 0.1, start_censoring_rate = 0.01) #censoring_rate = 0.0135)
+ESPD_30 <- censorEPSD(obj = ESPD_0, p_censoring = 0.30, start_censoring_rate = 0.04) #censoring_rate = 0.0459)
+ESPD_60 <- censorEPSD(obj = ESPD_0, p_censoring = 0.60, start_censoring_rate = 0.14) #censoring_rate = 0.1472)
 
 # Naive illustration
-fitESPD(t = df_0$time, e = df_0$event, events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
+fitESPD(t = ESPD_0$time, e = ESPD_0$event, events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
 
 # Fitting ESPD parameters
-fit_0  <- fitESPD(t = df_0$time,  e = df_0$event,  X1 = df_0$X_stage,  X12 = df_0$X_stage,  X22 = df_0$X_age,  events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
-fit_10 <- fitESPD(t = df_10$time, e = df_10$event, X1 = df_10$X_stage, X12 = df_10$X_stage, X22 = df_10$X_age, events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
-fit_30 <- fitESPD(t = df_30$time, e = df_30$event, X1 = df_30$X_stage, X12 = df_30$X_stage, X22 = df_30$X_age, events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
-fit_60 <- fitESPD(t = df_60$time, e = df_60$event, X1 = df_60$X_stage, X12 = df_60$X_stage, X22 = df_60$X_age, events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
+fit_0  <- fitESPD(t = ESPD_0$time,  e = ESPD_0$event,  X1 = ESPD_0$X_stage,  X12 = ESPD_0$X_stage,  X22 = ESPD_0$X_age,  events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
+fit_10 <- fitESPD(t = ESPD_10$time, e = ESPD_10$event, X1 = ESPD_10$X_stage, X12 = ESPD_10$X_stage, X22 = ESPD_10$X_age, events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
+fit_30 <- fitESPD(t = ESPD_30$time, e = ESPD_30$event, X1 = ESPD_30$X_stage, X12 = ESPD_30$X_stage, X22 = ESPD_30$X_age, events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
+fit_60 <- fitESPD(t = ESPD_60$time, e = ESPD_60$event, X1 = ESPD_60$X_stage, X12 = ESPD_60$X_stage, X22 = ESPD_60$X_age, events = c('progress', 'death'), dist1 = 'weibull', dist2 = 'gompertz')
 
 # Comparison of coefficients
 rbind(
@@ -184,6 +219,172 @@ rbind(
   fit_30 = exp(sum(c(1, 80) * fit_30$estimates[9:10])),
   fit_60 = exp(sum(c(1, 80) * fit_60$estimates[9:10]))
 )
+
+
+
+
+## 4. SIMULATION STUDY ----
+
+getOutcomes <- function(t, e, TTP_min, TTP_max, TTD_min, TTD_max) {
+  
+  out <- list(
+    prob_TTP = mean(e == 'progress'),
+    mean_TTP = mean(t[e == 'progress']),
+    mean_TTD = mean(t[e == 'death']),
+    dens_TTP = density(x = t[e == 'progress'], n = 1024, from = TTP_min, to = TTP_max),
+    dens_TTD = density(x = t[e == 'death'], n = 1024, from = TTD_min, to = TTD_max)
+  )
+  
+  return(out)
+  
+}
+getErrors <- function(sim, pop) {
+  
+  sim <- unname(sim)
+  pop <- unname(pop)
+  
+  error <- sim - pop
+  
+  out <- c(
+    E   = error,
+    AE  = abs(error),
+    RE  = error / pop,
+    ARE = abs(error) / pop
+  )
+  
+  return(out)
+  
+}
+custSum <- function(x, ndigits = 2) {
+  
+  if(all(is.na(x)) | all(x == 0)) {
+    out <- '-'
+  } else {
+    est <- mean(x, na.rm = TRUE)
+    lb  <- quantile(x, 0.025, names = FALSE, na.rm = TRUE)
+    ub  <- quantile(x, 0.975, names = FALSE, na.rm = TRUE)
+    out <- paste0(formatC(est, digits = ndigits, format = 'f'), ' (', formatC(lb, digits = ndigits, format = 'f'), '; ', formatC(ub, digits = ndigits, format = 'f'), ')')
+  }
+  
+  return(out)
+  
+}
+
+runSIM <- function(pars, p_censoring, n_sample, n_runs = 1000, n_sim = 10^5, n_cores = 12, seed = 123) {
+  
+  set.seed(seed)
+  n_scenarios <- length(p_censoring) * length(n_sample)
+  i_scenario <- 0
+  
+  ls_out <- list()
+  
+  ESPD_pop <- simESPD(pars = pars, n_sim = n_sim)
+  TTP_min  <- TTD_min <- 0
+  TTP_max  <- max(ESPD_pop$time[ESPD_pop$event == 'progress'])
+  TTD_max  <- max(ESPD_pop$time[ESPD_pop$event == 'death'])
+  out_pop  <- getOutcomes(t = ESPD_pop$time, e = ESPD_pop$event) 
+  
+  for(i_censoring in p_censoring) {
+    for(i_sample in n_sample) {
+      
+      i_scenario <- i_scenario + 1
+      print(Sys.time())
+      cat('Starting scenario', i_scenario, 'out of', n_scenarios, '\n\n')
+      
+      cl <- makeForkCluster(nnodes = n_cores)
+      
+      out_run <- parSapply(cl, 1:n_runs, function(i_run) {
+        
+        set.seed(seed + i_run)
+        
+        out_run <- NULL
+        while(is.null(out_run)) {
+          
+          out_run <- tryCatch(expr = {
+            
+            i <- sample(x = n_sim, size = i_sample, replace = TRUE)
+            
+            ESPD_sample <- list(
+              time    = ESPD_pop$time[i],
+              event   = ESPD_pop$event[i],
+              X_age   = ESPD_pop$X_age[i, ],
+              X_stage = ESPD_pop$X_stage[i, ]
+            )
+            
+            if(i_censoring > 0) {
+              
+              ESPD_sample <- censorEPSD(
+                obj = ESPD_sample,
+                p_censoring = i_censoring, 
+                start_censoring_rate = switch(as.character(i_censoring), '0.1' = 0.01, '0.3' = 0.04, '0.6' = 0.10, NULL)
+              )
+              
+            }
+            
+            fit <- fitESPD(t = ESPD_sample$time, e = ESPD_sample$event, 
+                           dist1 = 'weibull', X1 = ESPD_sample$X_stage, X12 = ESPD_sample$X_stage,
+                           dist2 = 'gompertz', X22 = ESPD_sample$X_age)
+            
+            if(fit$convergence != 0) stop('Estimation of ESPD unsuccessful')
+            
+            fit_pars <- list(
+              progress_logitTheta = fit$estimates[1:3],
+              progress_logShape   = fit$estimates[4],
+              progress_logScale   = fit$estimates[5:7], 
+              death_Shape         = fit$estimates[8],
+              death_logRate       = fit$estimates[9:10]
+            )
+            sim <- simESPD(pars = fit_pars, n_sim = n_sim)
+            
+            if(any(is.infinite(sim$time))) stop('Inf value sampled')
+            
+            out_sim <- getOutcomes(
+              t       = sim$time, 
+              e       = sim$event, 
+              TTP_min = TTP_min,
+              TTP_max = TTP_max,
+              TTD_min = TTD_min,
+              TTD_max = TTD_max
+            )
+            
+            error_prob <- getErrors(out_sim$prob_TTP, out_pop$prob_TTP)
+            error_TTP  <- getErrors(out_sim$mean_TTP, out_pop$mean_TTP)
+            error_TTD  <- getErrors(out_sim$mean_TTD, out_pop$mean_TTD)
+            KLD_TTP    <- KLdiv(cbind(out_sim$dens_TTP$y, out_pop$dens_TTP$y))[2, 1] # population as reference
+            KLD_TTD    <- KLdiv(cbind(out_sim$dens_TTD$y, out_pop$dens_TTD$y))[2, 1]
+            
+            c(probTTP = error_prob, meanTTP = error_TTP, meanTTD = error_TTD, TTP.KLD = KLD_TTP, TTD.KLD = KLD_TTD)
+            
+          }, error = function(e) NULL)
+          
+        }
+        
+        out_run
+        
+      })
+      
+      stopCluster(cl)
+      
+      summary_run <- apply(out_run, 1, custSum)
+      
+      ls_out[[length(ls_out) + 1]] <- c(p_censoring = i_censoring, n_sample = i_sample, summary_run)
+      
+    }
+  }
+  
+  out <- do.call(rbind, ls_out)
+  
+  return(out)
+  
+}
+
+
+sim <- runSIM(pars = pars, p_censoring = c(0, 0.1, 0.3, 0.6), n_sample = c(50, 100, 200, 500), n_runs = 1000, n_sim = 10^6)
+
+saveRDS(object = sim, file = 'simulation_study/sim 20211224.RDS')
+write.csv(x = sim, file = 'simulation_study/sim 20211224.csv', row.names = FALSE)
+
+sim[, grepl('p_|n_|.ARE', colnames(sim))]
 
 
 
