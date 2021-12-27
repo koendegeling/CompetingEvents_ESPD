@@ -62,7 +62,7 @@ $$F_{death}(t,\theta_{death})=Gompertz\big(t, \theta_{death}^{shape}=0.1, \theta
 Based on these true parameters, a population ($s_{pop}$) of $n_{sim}=1,000,000$ individuals was simulated. Subsequently, the performance of the ESPD approach was assessed for a range of scenarios defined by the proportion of censored observations ($p_{censored}=0.0, 0.1, 0.3, 0.6$) and sample sizes ($n_{sample}=50, 100, 200, 500$) using the following procedure:
 
 * For all combinations of $p_{censored}$ and $n_{sample}$:
-  * For $n_{run}=5,000$ iterations:
+  * For $n_{run}=10,000$ iterations:
     * Draw a sample $s_{uncensored}$ from population $s_{pop}$ according to $n_{sample}$
     * Censor sample $s_{uncensored}$ according to $p_{censored}$ to obtain sample $s_{censored}$
     * Analyze $s_{censored}$ according to the ESPD approach
@@ -86,11 +86,11 @@ Given that none of the performance measures considers second-order uncertainty, 
 
 Detailed results of the simulation study are available in the Supplementary Material. Overall, the ESPD approach performed well. In general, higher proportions of censoring and lower sample sizes both negatively impacted the accuracy of the approach with regard to all performance measures.
 
-With regard to the event probability, on average there was basically no error in the E or RE up to 30% censoring. For 60% censoring, the RE ranged from -0.02 (95% confidence interval: -0.15; 0.12) for sample size 500, to 0.05 (-0.45; 0.66) for size 50. The average ARE ranged from 0.04 (0.00; 0.10) for multiple scenarios, to 0.23 (0.01; 0.66) for 60% censoring and size 50.
+With regard to the event probability, on average there was basically no error in the E or RE up to 30% censoring. For 60% censoring, the RE ranged from -0.02 (95% confidence interval: -0.16; 0.13) for sample size 500, to 0.05 (-0.44; 0.66) for size 50. The average ARE ranged from 0.04 (0.00; 0.10) for multiple scenarios, to 0.23 (0.01; 0.66) for 60% censoring and size 50.
 
-Regarding the mean time-to-event, similar as for the event probability, on average there was basically no error in the E or RE up to 30% censoring. For 60% censoring, unrealistic results were obtained for sample size 50. Other than that, the average RE ranged from 0.01 (-0.13; 0.15) for time-to-progression and size 500, to 0.20 (-0.30; 1.09) for time-to-progression and size 100. Excluding the scenario of 60% censoring and size 50, the average ARE ranged from 0.03 (0.00; 0.07) for multiple scenarios, to 0.33 (0.01; 1.09) for time-to-progression under 60% censoring and for size 100.
+Regarding the mean time-to-event, similar as for the event probability, on average there was basically no error in the E or RE up to 30% censoring. For 60% censoring, unrealistic results were obtained for sample size 50. Other than that, for 60% censoring, the average RE ranged from 0.00 (-0.13; 0.16) for time-to-progression and size 500, to 0.23 (-0.27; 1.09) for time-to-progression and size 100. Excluding the scenario of 60% censoring and size 50, the average ARE ranged from 0.03 (0.00; 0.08) for multiple scenarios, to 0.34 (0.01; 1.09) for time-to-progression under 60% censoring and for size 100.
 
-In terms of the $KLD$, similar trends were observed. The $KLD$ ranged from 0.03 (0.01; 0.05) for multiple scenarios, to 0.51 (0.03; 3.17) for time-to-death under 60% censoring and for size 50.
+In terms of the $KLD$, similar trends were observed. The $KLD$ ranged from 0.03 (0.01; 0.05) for multiple scenarios, to 0.49 (0.03; 2.97) for time-to-death under 60% censoring and for size 50.
 
 ## 4. Case study
 

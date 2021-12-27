@@ -379,10 +379,10 @@ runSIM <- function(pars, p_censoring, n_sample, n_runs = 1000, n_sim = 10^5, n_c
 }
 
 
-sim <- runSIM(pars = pars, p_censoring = c(0, 0.1, 0.3, 0.6), n_sample = c(50, 100, 200, 500), n_runs = 1000, n_sim = 10^6)
+sim <- runSIM(pars = pars, p_censoring = c(0, 0.1, 0.3, 0.6), n_sample = c(50, 100, 200, 500), n_runs = 10000, n_sim = 10^6)
 
-saveRDS(object = sim, file = 'simulation_study/sim 20211224.RDS')
-write.csv(x = sim, file = 'simulation_study/sim 20211224.csv', row.names = FALSE)
+saveRDS(object = sim, file = 'simulation_study/sim 20211226.RDS')
+write.csv(x = sim, file = 'simulation_study/sim 20211226.csv', row.names = FALSE)
 
 sim[, grepl('p_|n_|.ARE', colnames(sim))]
 
