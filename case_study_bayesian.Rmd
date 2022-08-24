@@ -1,0 +1,141 @@
+---
+title: "Bayesian implementation"
+date: "17/02/2022"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+## Libraries
+require(dplyr)
+require(data.table)
+require(cmdstanr)
+melanoma <- boot::melanoma
+```
+
+## Maximum likelihood estimation: the Bayesian way
+
+Similar to the frequentist implementation, we use the `melanoma` dataset from the boot package. We load the data and define the competing events.
+
+We use **`CmdStanR`** as the R Stan interface. To install, please follow instructions: <https://mc-stan.org/cmdstanr/>
+
+```{r}
+mel_df <- boot::melanoma %>%
+  # competing risks
+  mutate(comp_event = case_when(
+    status %in% c(3) ~ 0, # censored
+    status %in% c(2) ~ 2, # progression
+    TRUE ~ 1)) %>% # death
+  # get the time in year
+  mutate(event_time = as.numeric(time/365))
+```
+
+```{r}
+# Convert to data.table 
+df.tmp = as.data.table(mel_df)
+
+# Normalise the age/thickness -- helps HMC sampler, and makes coefficients easier to interpret  
+df.tmp[["age"]] = scale(df.tmp[["age"]])
+df.tmp[["thickness"]] = scale(df.tmp[["thickness"]])
+
+# Mixture proportions will depend on sex, age, ulcer, thickness 
+prop.pars = c("sex", "age", "ulcer", "thickness")
+
+# Construct the matrix of covariates for proportions, adding intercept 
+Xprop = cbind(1, as.matrix(df.tmp[,.SD, .SDcols = prop.pars]))
+```
+
+```{r}
+# Parameters for the risk
+pars.2 = c("thickness", "ulcer", "age", "sex")
+
+# Matrices of covariates 
+X1 = as.matrix(df.tmp[,.SD, .SDcols = pars.2])
+X2 = as.matrix(df.tmp[,.SD, .SDcols = pars.2])
+
+# Bind the two 
+X = cbind(X1, X2)
+
+# Save dimensions of each -- we will be passing one big matrix X to Stan, and 
+# it needs to figure out which covariates to use for which risk 
+cov_dims = t(matrix(c(1, ncol(X1), ncol(X1)+1, ncol(X1) + ncol(X2)), ncol = 2))
+```
+
+### Collate the data
+
+The signature should be the same as in the data section of *weibull_mix_cov.stan*
+
+```{r}
+data.stan = list(
+  N = nrow(mel_df),
+  D = length(unique(df.tmp[comp_event != 0,][["comp_event"]])),
+  y = mel_df[["event_time"]],
+  event = mel_df[["comp_event"]],
+  Xprop = Xprop,
+  K = length(prop.pars)+1,
+  cov_dims = cov_dims,
+  M = ncol(X),
+  X = X
+)
+```
+
+### Compile the model with **`CmdStanR`**
+
+We compile the model, however note that we are not sampling at this stage, but creating a model object
+
+```{r warning=FALSE}
+mod.cr = cmdstan_model(stan_file = "Bayes/weibull_mix_cov.stan")
+```
+
+Now we can sample. To read more about the parameters, please check <https://mc-stan.org/users/documentation/>
+
+```{r message=FALSE, warning=FALSE}
+# Sample 
+fit.cr <- mod.cr$sample(
+  data = data.stan,
+  #seed = 123,
+  chains = 4,
+  parallel_chains = 4,
+  refresh = 25,
+  max_treedepth = 15,
+  adapt_delta = 0.99,
+  iter_warmup = 2000,
+  iter_sampling = 1000
+)
+```
+
+```{r}
+# Print a summary 
+fit.cr$summary()
+```
+
+### Results
+
+We can plot the parameters of interest
+
+```{r}
+bayesplot::mcmc_hist(fit.cr$draws(c("alpha", "mu", "beta_pi_raw", "beta"))) 
+```
+
+For patients with no events recorded (censored), we can calculate mean posterior probability of each event (makes sense in our framework where we select the event first)
+
+```{r}
+pr = matrix(apply(fit.cr$draws("pr"), 3, mean), ncol = 2)[df.tmp[["comp_event"]] == 0,]
+```
+
+Julia produces extra amazing plots \<3
+
+```{r}
+one.chain = as.data.frame(drop(as.array(fit.cr$draws(c("alpha", "mu", "beta_pi_raw", "beta")))[,1,]))
+write.csv(one.chain, "one_chain.csv")
+```
+
+```{r}
+sessionInfo()
+```
