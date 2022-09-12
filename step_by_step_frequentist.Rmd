@@ -11,95 +11,161 @@ editor_options:
 knitr::opts_chunk$set(
 	echo = TRUE,
 	message = FALSE,
-	warning = FALSE
-)
+	warning = FALSE)
+
 ## Libraries
 require(dplyr)
 require(data.table)
 require(optimization)
 ```
 
-## Maximum likelihood estimation: a step-by-step illustration
+## Maximum likelihood estimation: a brief reminder
 
-Suppose $X_i \sim \mathcal{F}$ for $i \in 1\dots N$
+Suppose we observe a sample of independent observations coming from the
+same distribution, i.e. $X_i \sim \mathcal{F}$ for $i \in 1\dots N$.
+Suppose further $\mathcal{F}$ is parametrised by vector $\theta$
+governing the distribution, and has the corresponding density
+$f(\cdot; \theta)$. The likelihood of the observed sample given $\theta$
+is then
+
+$$
+\mathcal{L}_N(\theta; X) = \prod_{i=1}^N f(X_i;\theta)
+$$
+
+The goal of MLE is to find the optimal vector $\hat{\theta}$, namely
+
+$$
+\hat{\theta} := {\arg\max}_{\theta \in \Theta}\mathcal{L}_N(\theta; X) 
+$$
+
+where $\Theta$ is called the parameter space. In what follows we will
+use this approach to model various risk-related phenomena of increasing
+complexity, taking us from a simple Weibull distribution to the mixture
+of experts approach to dealing with competing risks.
 
 ### A simple case:
 
 Below we show how to generate a Weibull variable given a vector of
-parameters, and then use MLE to retrieve this parameters given the data
+parameters, and then use MLE to retrieve this parameters given the data.
+Type `?rweibull` in the console for more details.
 
 ```{r}
-n_sim <- 100
-X <- rweibull(n_sim, shape = 2.2, scale = 7.2)
-hist(X, breaks = 30)
+n_sim <- 1000
+times <- rweibull(n_sim, shape = 2.2, scale = 7.2)
+hist(times, breaks = 30, col = "lightblue")
 ```
 
 Define log-likelihood for this simple case -- given a vector of
 parameters $\theta$:
 
--   Calculate Weibull density for each data point with shape/scale set
-    to $(\theta_1,\theta_2)$
--   Sum the logs of all obtained values
--   Take negative of the result -- this is done since standard
-    optimisation packages minimise
+\- Calculate Weibull density for each data point with shape/scale set to
+$(\theta_1,\theta_2)$
+
+\- Sum the logs of all obtained values
+
+\- Take negative of the result -- this is done since standard
+`optimisation` packages minimises by default
 
 ```{r}
-ll_weibull <- function(theta, X){
-  return(-sum(sapply(X, \(x) log(dweibull(x, shape=theta[1], scale=theta[2])))))
+ll_weibull <- function(theta, times){
+  res = 0
+  for (t in times){
+    res = res + log(dweibull(t, shape=theta[1], scale=theta[2]))
+  }
+  return(-res)
 }
 ```
 
+**NB:** function above can be significantly simplified using `sapply:`
+
+-   `return(-sum(sapply(X, \(x) log(dweibull(x, shape=theta[1], scale=theta[2])))))`
+
+-   Historically, such functional approach tended to be much faster. In
+    recent times, however, for loops have been made much more performent
+    and thus the choice is less clear-cut
+
+-   In the sequel we stick with loops for code clarity
+
+We now perform minimisation of `ll_weibull` given our data:
+
 -   Set initial guess to the vector (1,1)
--   Minimise negative log likelihood defined above using BFGS
-    optimisation method
+-   Use BFGS optimisation method (if interested, start with `?optim` for
+    an overview of available optimisers)
 
 ```{r warning=FALSE}
-pars <- optim(par=c(1,1), fn=\(theta) ll_weibull(theta, X), method = "BFGS")
+pars <- optim(par=c(1,1), fn=\(theta) ll_weibull(theta, times), method = "BFGS")
 print(pars$par)
 ```
 
 We see that obtained values are not quite the true parameters -- this is
 normal, and becomes less pronounced as sample size increases. You can
-convince yourself this is the case by playing with n_sim above.
+convince yourself this is the case by playing with `n_sim` in the first
+code cell above.
 
 ### With censoring
 
-In the presence of censoring situation is somewhat different:
+Unfortunately, very often in real world datasets some of the outcomes
+are censored because corresponding events fall outside the period of
+observation. In order to simulate such scenario, we proceed as follows:
+
+-   Define an independent exponential variable with a set rate (see
+    `?rexp` for details)
+
+-   Tune this parameter [`c_rate`] to achieve the level of censoring
+    required
+
+-   These times correspond to the *"time left in the experiment"* for
+    each data point
+
+```{r}
+c_rate <- 0.07
+cens_times <- rexp(n = n_sim, rate = c_rate)
+hist(cens_times, breaks = 25, col = "lightblue")
+```
+
+Compare 'censoring' times with the actual simulated event times --- each
+element of the vector `c` below will be:
+
+-   1 if experiment ended before we observed an event
+
+-   0 otherwise
+
+```{r}
+c <- mapply(FUN = \(x,y) ifelse(x <= y, 0, 1), times, cens_times)
+print(paste0("Proportion of censored observations: ", sum(c)/n_sim*100, "%"))
+```
+
+Similarly, the actual observed times will be minimum of the event time
+and the end of the experiment:
+
+```{r}
+t <- mapply(FUN = \(x,y) ifelse(x <= y, x, y), times, cens_times)
+hist(t, breaks = 25, col = "lightblue")
+```
+
+The **likelihood** in the presence of censoring also needs to be
+modified:
 
 -   If an event time $x_i = t$ is observed, then
     $\mathbf{P}(x_i|\theta) = w(t, \theta_k)$, where
     $w = \frac{d}{dt}\mathcal{W}$ is the density of the Weibull
     distribution
+
 -   If an observation $x_i = (t,c)$ is censored, then we know that the
     event has not happened by that time, namely $$
       \mathbf{P}(x_i | \theta) = (1 - \mathcal{W}(t, \theta))
     $$
 
-```{r}
-c_rate <- 0.07
-cens_times <- rexp(n = n_sim, rate = c_rate)
-hist(cens_times, breaks = 25)
-```
-
-Now compare censoring times with observed times:
-
-```{r}
-c <- mapply(FUN = \(x,y) ifelse(x <= y, 0, 1), X, cens_times)
-sum(c)/n_sim
-```
-
-```{r}
-t <- mapply(FUN = \(x,y) ifelse(x <= y, x, y), X, cens_times)
-hist(t, breaks = 25)
-```
-
-Below we put in code our description from above;
+Here's the code corresponding to the above:
 
 ```{r}
 ll_weibull_cens <- function(theta, t, c){
-  return(-sum(mapply(\(x, y) ifelse(y, log(1-pweibull(x, theta[1], theta[2])),
-                                       log(dweibull(x, shape=theta[1], scale=theta[2]))),
-                     t, c)))
+  res = 0
+  for (i in 1:length(t)){
+    res = res - ifelse(c[i], log(1-pweibull(t[i], theta[1], theta[2])),
+                             log(dweibull(t[i], shape=theta[1], scale=theta[2])))
+  }
+  return(res)
 }
 ```
 
@@ -110,12 +176,25 @@ print(pars_cens$par)
 
 ### With censoring and covariates
 
-In order to incorporate covariates in the model, we use the following
+When it comes to real world data, assuming that the distribution of the
+event times does not depend on the individual is unrealistic. In other
+words, we should allow for the possibility for it to be informed by
+patient-specific characteristics.
+
+To that end, we incorporate covariates in the model using the following
 parametrisation:
 
 $$
 f(y_i|\alpha,\sigma_i) =\frac{\alpha}{\sigma_i}\left(\frac{y_i}{\sigma_i}\right)^{\alpha-1}e^{-(y_i/\sigma_i)^{\alpha}}
+$$where
+
 $$
+\sigma_{i} = \exp{\left( - \frac{\mu + X_{i}^{T}\beta}{\alpha} \right)}
+$$
+
+is the scale, which now includes participant's (baseline) information,
+such as sex, age, etc. We define new functions for cumulative
+probability, density and sampling according to the above:
 
 ```{r}
 rweibull_cov <- function(alpha, mu, beta, x, n = 1) {
@@ -132,30 +211,48 @@ pweibull_cov <- function(t, alpha, mu, beta, x) {
     sig <- exp(-(mu + beta %*% x) / alpha)
     return(pweibull(t, shape = alpha, scale = sig))
 }
+```
 
-# Generate standardised age
+We now generate "age", set its effect size (`beta_age`) and sample
+corresponding event times:
+
+```{r}
+n_sim <- 100
 age <- rnorm(n = n_sim, mean = 0, sd = 1)
 
 beta_age <- 1.5
 alpha <- 2
 mu <- -4
-t <- rweibull_cov(alpha, mu, beta_age, age, n_sim)
+times <- rweibull_cov(alpha, mu, beta_age, age, n_sim)
 
-hist(t, breaks = 30)
+hist(t, breaks = 30, col = "lightblue")
 ```
+
+Censoring is performed as before, as well as subsequent steps of
+defining vectors `t` and `c`
 
 ```{r}
 c_rate <- 0.1
 cens_times <- rexp(n = n_sim, rate = c_rate)
-c <- mapply(FUN = \(x,y) ifelse(x <= y, 0, 1), t, cens_times)
-t <- mapply(FUN = \(x,y) ifelse(x <= y, x, y), t, cens_times)
-sum(c)/n_sim
+c <- mapply(FUN = \(x,y) ifelse(x <= y, 0, 1), times, cens_times)
+t <- mapply(FUN = \(x,y) ifelse(x <= y, x, y), times, cens_times)
+print(paste0("Proportion of censored observations: ", sum(c)/n_sim*100, "%"))
 ```
+
+Of course, we should also adjust the code for our likelihood --- it
+looks exactly as it did before, but density and probability functions
+now include covariates:
 
 ```{r}
 ll_weibull_cens_cov <- function(theta, t, c, X){
-  return(-sum(mapply(\(x, y, z) ifelse(y, log(1-pweibull_cov(x, theta[1], theta[2], theta[3:length(theta)], z)), log(dweibull_cov(x, theta[1], theta[2], theta[3:length(theta)], z))),
-                     t, c, X)))
+  res = 0
+  for (i in 1:length(t)){
+    res = res +   
+      ifelse(c[i], 
+             log(1-pweibull_cov(t[i], theta[1], theta[2], theta[3:length(theta)], X[i])), 
+             log(dweibull_cov(t[i], theta[1], theta[2], theta[3:length(theta)], X[i])))
+  }
+  return(-res)
 }
 ```
 
@@ -166,31 +263,69 @@ print(pars_cens_cov$par)
 
 ### One risk good -- two risks better
 
+We are now very close --- one thing we need to learn how to do is
+dealing with multiple competing risks. In line with the definition of
+the ESPD model (see paper for details), we do the following:
+
 -   Pick which event will happen according to mixture proportions
 
--   Sample time to event given corresponding parameter vector
+-   Sample time to event given parameters of the chosen risk
+
+We don't spend too much time explaining the code snippet below -- we do
+thing which are familiar by now:
+
+-   Generate both times
+
+-   Pick one according to the proportion definition
+
+-   Record which event happened
+
+-   Censor the resulting times
 
 ```{r}
-n_sim_mix <- 500
-theta1 <- c(3, 7)
-theta2 <- c(1, 5)
+n_sim_mix <- 1000
+theta1 <- c(3, 2)
+theta2 <- c(5, 5)
 prop <- c(0.3, 0.7)
 
 t1 <- rweibull(n_sim_mix, shape = theta1[1], scale = theta1[2])
 t2 <- rweibull(n_sim_mix, shape = theta2[1], scale = theta2[2])
 
 event <- sample(c(1,2), size = n_sim_mix, prob = prop, replace = TRUE)
-t <- mapply(\(x,y,event) ifelse(event==1, x, y), t1, t2, event)
+t <- mapply(\(x,y,e) ifelse(e==1, x, y), t1, t2, event)
 
+hist(t, breaks = 30, col = "lightblue")
+```
+
+Notice above that, as expected, the distribution is bi-modal (two risks
+considered)!
+
+```{r}
 # censor as before
 c_rate <- 0.1
 cens_times <- rexp(n = n_sim_mix, rate = c_rate)
-event <- mapply(FUN = \(x,y,z) ifelse(x <= y, 0, z), t, cens_times, event)
+event <- mapply(FUN = \(x,y,z) ifelse(x <= y, z, 0), t, cens_times, event)
 t <- mapply(FUN = \(x,y) ifelse(x <= y, x, y), t, cens_times)
 
 # Percent of censored data 
-sum(event!=0)/n_sim_mix
+print(paste0("Proportion of censored observations: ", sum(event==0)/n_sim_mix*100, "%"))
 ```
+
+The vector of proportions $\pi$ describes a probability distribution. In
+other words, all its elements are non-negative and sum to one. This
+makes what follows a constrained optimisation problem --- in order to
+avoid dealing with resulting complications, we force use the standard
+trick of applying a *sigmoid* function in order to force the desired
+condition:
+
+```{r}
+sigmoid <- function(x){
+  return(1/(1+exp(-x)))
+}
+```
+
+Likelihood is defined below -- notice that `p` is forced to be between 0
+and 1, even though `theta[1]` is allowed to be anything:
 
 ```{r}
 ll_weibull_mix <- function(theta, t, e){
@@ -213,42 +348,37 @@ ll_weibull_mix <- function(theta, t, e){
 ```
 
 ```{r warning=FALSE}
-sigmoid <- function(x){
-  return(1/(1+exp(-x)))}
-
 pars_cens_cov <- optim(par=c(0,1,1,1,1), 
                       fn=\(x) ll_weibull_mix(x, t, event), 
                       method = "BFGS",
-                      control = list(maxiter=1e4))
-
+                      control = list(maxiter=1e5))
 print(sigmoid(pars_cens_cov$par[1]))
 print(pars_cens_cov$par[2:length(pars_cens_cov$par)])
+
 ```
 
-```{r warning=FALSE}
-res <- optimization::optim_sa(start = c(0.0,1,1,1,1),
-                      fun  = function(x) ll_weibull_mix(x, t, event),
-                      lower = c(-Inf, 0, 0, 0, 0),
-                      upper = c(Inf, 10, 10, 10, 10),
-                      control = list(t0 = 2000, nlimit = 1000))
-```
+Below we define the function we shall apply to the case study --- we
+will not run it on simulated data
 
 ```{r}
+
 ll_weibull_mix_cov <- function(theta1, theta2, beta1, beta2, beta_prop, t, e, X1, X2, Xprop){
   ll = 0
   # Get a vector of proportions 
   p = sapply(X = Xprop %*% beta_prop, FUN = \(x) sigmoid(x))
   for (i in 1:length(t)){
     if (e[i]==1){
-      ll = ll + log(p[i]) + log(dweibull_cov(t[i], exp(theta1[1]), theta1[2], beta1, X1[i,]))
+      ll = ll 
+        + log(p[i]) + log(dweibull_cov(t[i], exp(theta1[1]), theta1[2], beta1, X1[i,]))
     }
     else if (e[i]==2){
-      ll = ll + log(1-p[i]) + log(dweibull_cov(t[i], exp(theta2[1]), theta2[2], beta2, X2[i,]))
+      ll = ll 
+        + log(1-p[i]) + log(dweibull_cov(t[i], exp(theta2[1]), theta2[2], beta2, X2[i,]))
     }
     else {
-      ll = ll + log(p[i] * (1 - pweibull_cov(t[i], exp(theta1[1]), theta1[2], beta1, X1[i,])) 
-                    + (1-p[i]) * 
-                      (1 - pweibull_cov(t[i], exp(theta2[1]), theta2[2], beta2, X2[i,])))
+      ll = ll 
+        + log(p[i] * (1 - pweibull_cov(t[i], exp(theta1[1]), theta1[2], beta1, X1[i,])) 
+        + (1-p[i]) * (1 - pweibull_cov(t[i], exp(theta2[1]), theta2[2], beta2, X2[i,])))
     }
   }
   return(-ll)
@@ -257,8 +387,20 @@ ll_weibull_mix_cov <- function(theta1, theta2, beta1, beta2, beta_prop, t, e, X1
 
 ### Applying it to the case study
 
-We load the `melanoma` dataset from the boot package and define the
-competing events.
+We are now in a position to put everything we've learnt so far to
+practical use. We proceed as follows:
+
+-   Load the data and wrangle it to correspond to the required format
+
+-   Define covariates for both death and progression risk processes, as
+    well as mixture proportions
+
+-   Use `ll_weibull_mix_cov` in order to optimise the parameters
+
+-   Compare the results with Bayesian implementation
+
+First, we load the `melanoma` dataset from the boot package and define
+the competing events.
 
 ```{r}
 mel_df <- boot::melanoma %>%
@@ -272,45 +414,74 @@ mel_df <- boot::melanoma %>%
 ```
 
 ```{r}
-# Convert to data.table 
-dat <- as.data.table(mel_df)
+# Convert to data.table: better for manipulation of large datasets 
+dat = as.data.table(mel_df)
 
 # Normalise the age/thickness -- helps HMC sampler, and makes coefficients easier to interpret  
 dat[["age"]] = scale(dat[["age"]])
 dat[["thickness"]] = scale(dat[["thickness"]])
 
 # Mixture proportions will depend on sex, age, ulcer, thickness 
-prop_pars <- c("sex", "age", "ulcer", "thickness")
-# Construct the matrix of covariates for proportions, adding intercept 
-Xprop <- cbind(1, as.matrix(dat[,.SD, .SDcols = prop_pars]))
+prop_pars = c("sex", "age", "ulcer", "thickness")
 
-pars_risks <- c("thickness", "ulcer", "age", "sex")
-X <- as.matrix(dat[,.SD, .SDcols = pars_risks])
+# Construct the matrix of covariates for proportions, adding intercept 
+Xprop = cbind(1, as.matrix(dat[,.SD, .SDcols = prop_pars]))
+
+pars_risks = c("thickness", "ulcer", "age", "sex")
+X = as.matrix(dat[,.SD, .SDcols = pars_risks])
+
 ```
 
 ```{r}
-res_cs <- optim(par = c(0,-5,0,-5,0,0,0,0,0,0,0,0,0,0,0,0,0),
-               fn  = function(x) ll_weibull_mix_cov(
-                 theta1 = x[1:2], theta2 = x[3:4], beta1 = x[5:8],
-                 beta2 = x[9:12], beta_prop = x[13:17], dat$event_time,
-                 dat$comp_event, X, X, Xprop),
+res_cs = optim(par = c(0,-5,0,-5,0,0,0,0,0,0,0,0,0,0,0,0,0),
+               fn = function(x) 
+                    ll_weibull_mix_cov(theta1 = x[1:2], theta2 = x[3:4], beta1 = x[5:8],
+                        beta2 = x[9:12], beta_prop = x[13:17], 
+                        dat$event_time, dat$comp_event, X, X, Xprop),
                control = list(maxit=2000))
 
-print(res_cs$par)
 ```
-Now using the provided custom function, fitESPD()
 
 ```{r}
-# source function
-source("R_functions/ESPD_frequentist.R", echo=TRUE)
-
-fit_frequentist <- fitESPD(t = dat$event_time, e = dat$comp_event, w = NULL, i = NULL, 
-                           events = c(1, 2, 0), "weibull", "weibull", 
-                           X1 = Xprop, X11 = Xprop, X12 = Xprop, X21 = NULL, X22 = NULL, 
-                           nsim = 10^5, optmethod = 'BFGS', niter = 10^3)
+print(paste0("Death alpha/mu: ", exp(res_cs$par[1]), ", ", res_cs$par[2]))
 ```
-
 
 ```{r}
-sessionInfo()
+print(paste0("Progression alpha/mu: ", exp(res_cs$par[3]), ", ", res_cs$par[4]))
 ```
+
+```{r}
+print(paste0("Beta for proportions: ", paste(res_cs$par[13:17], collapse = ", ")))
+```
+
+```{r}
+print(paste0("Beta for death: ", paste(res_cs$par[5:8], collapse = ", ")))
+```
+
+```{r}
+print(paste0("Beta for progression: ", paste(res_cs$par[9:12], collapse = ", ")))
+```
+
+Compare the above with the Bayesian posterior samples (see paper) -- we
+are very close to the mean posterior values, but there are some expected
+discrepancies since in this tutorial we worked purely with likelihood.
+
+### What next?
+
+In this tutorial we showed how to perform maximum likelihood estimation
+for the case of competing risks from scratch. However, this is not the
+end of the road -- in reality one may require quite a bit more
+flexibility, such as allowing for different parametric families of
+distributions for individual risks, as well goodness-of-fit diagnostics
+such as information criteria.
+
+Having mastered material in this notebook, you are well-positioned to
+develop all that functionality yourself, but thankfully we have already
+done it so that you don't have to!
+
+`ESPD_frequentist.R` has all the functionality you may ever require, and
+relies on more robust `maxLik` package. Given that it uses slightly
+different parametrisations compared to what we developed above, we are
+not going to show it here. However, the material above is sufficient for
+anyone to get a good grasp of what is happening under the hood. We look
+forward to you trying it out and letting us know what you think.
