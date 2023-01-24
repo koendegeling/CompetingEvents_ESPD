@@ -1,9 +1,12 @@
 ---
 title: "Bayesian implementation"
-date: "17/02/2022"
+date: '2023-01-02'
 output:
   html_document: default
   word_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 ```{r setup, include=FALSE}
@@ -13,19 +16,26 @@ knitr::opts_chunk$set(
 	warning = FALSE
 )
 ## Libraries
-require(dplyr)
 require(data.table)
 require(cmdstanr)
-melanoma <- boot::melanoma
+require(dplyr)
 ```
 
 ## Maximum likelihood estimation: the Bayesian way
 
-Similar to the frequentist implementation, we use the `melanoma` dataset from the boot package. We load the data and define the competing events.
+Similar to the frequentist implementation, we use the `melanoma` dataset 
+from the boot package. We load the data and define the competing events.
 
-We use **`CmdStanR`** as the R Stan interface. To install, please follow instructions: <https://mc-stan.org/cmdstanr/>
+We use **`CmdStanR`** as the R Stan interface. To install, 
+ please follow instructions: <https://mc-stan.org/cmdstanr/>
+
+For reproducibility, we set the random number seed to `239` using 
+the `set.seed()` function.
 
 ```{r}
+set.seed(239)
+
+# Loading the melanoma dataset and preparing data
 mel_df <- boot::melanoma %>%
   # competing risks
   mutate(comp_event = case_when(
@@ -37,18 +47,19 @@ mel_df <- boot::melanoma %>%
 ```
 
 ```{r}
-# Convert to data.table 
+# Convert to data.table
 df.tmp = as.data.table(mel_df)
 
-# Normalise the age/thickness -- helps HMC sampler, and makes coefficients easier to interpret  
+# Normalise the age/thickness -- helps HMC sampler, 
+# and makes coefficients easier to interpret
 df.tmp[["age"]] = scale(df.tmp[["age"]])
 df.tmp[["thickness"]] = scale(df.tmp[["thickness"]])
 
-# Mixture proportions will depend on sex, age, ulcer, thickness 
+# Mixture proportions will depend on sex, age, ulcer, thickness
 prop.pars = c("sex", "age", "ulcer", "thickness")
 
-# Construct the matrix of covariates for proportions, adding intercept 
-Xprop = cbind(1, as.matrix(df.tmp[,.SD, .SDcols = prop.pars]))
+# Construct the matrix of covariates for proportions, adding intercept
+Xprop = cbind(1, as.matrix(df.tmp[, .SD, .SDcols = prop.pars]))
 ```
 
 ```{r}
@@ -74,11 +85,11 @@ The signature should be the same as in the data section of *weibull_mix_cov.stan
 ```{r}
 data.stan = list(
   N = nrow(mel_df),
-  D = length(unique(df.tmp[comp_event != 0,][["comp_event"]])),
+  D = length(unique(df.tmp[comp_event != 0, ][["comp_event"]])),
   y = mel_df[["event_time"]],
   event = mel_df[["comp_event"]],
   Xprop = Xprop,
-  K = length(prop.pars)+1,
+  K = length(prop.pars) + 1,
   cov_dims = cov_dims,
   M = ncol(X),
   X = X
@@ -87,13 +98,15 @@ data.stan = list(
 
 ### Compile the model with **`CmdStanR`**
 
-We compile the model, however note that we are not sampling at this stage, but creating a model object
+We compile the model, however note that we are not sampling at this stage, 
+but creating a model object
 
 ```{r warning=FALSE}
 mod.cr = cmdstan_model(stan_file = "Bayes/weibull_mix_cov.stan")
 ```
 
-Now we can sample. To read more about the parameters, please check <https://mc-stan.org/users/documentation/>
+Now we can sample. To read more about the parameters, 
+please check <https://mc-stan.org/users/documentation/>
 
 ```{r message=FALSE, warning=FALSE}
 # Sample 
@@ -123,10 +136,12 @@ We can plot the parameters of interest
 bayesplot::mcmc_hist(fit.cr$draws(c("alpha", "mu", "beta_pi_raw", "beta"))) 
 ```
 
-For patients with no events recorded (censored), we can calculate mean posterior probability of each event (makes sense in our framework where we select the event first)
+For patients with no events recorded (censored), we can calculate mean 
+posterior probability of each event (makes sense in our framework where 
+we select the event first)
 
 ```{r}
-pr = matrix(apply(fit.cr$draws("pr"), 3, mean), ncol = 2)[df.tmp[["comp_event"]] == 0,]
+pr = matrix(apply(fit.cr$draws("pr"), 3, mean), ncol = 2)[df.tmp[["comp_event"]] == 0, ]
 ```
 
 Julia produces extra amazing plots \<3
