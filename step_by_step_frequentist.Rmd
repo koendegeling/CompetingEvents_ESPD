@@ -46,12 +46,14 @@ of experts approach to dealing with competing risks.
 Below we show how to generate a Weibull variable given a vector of
 parameters, and then use MLE to retrieve this parameters given the data.
 Type `?rweibull` in the console for more details. For reproducibility,
-we set the random number seed to `123` using the `set.seed()` function.
+we set the random number seed to `239` using the `set.seed()` function.
 
 ```{r}
-set.seed(123)
+set.seed(239)
+
 n_sim <- 1000
 times <- rweibull(n_sim, shape = 2.2, scale = 7.2)
+
 hist(times, breaks = 30, col = "lightblue")
 ```
 
@@ -68,6 +70,7 @@ set to $(\theta_1,\theta_2)$
 ll_weibull <- function(theta, times){
   d  <- dweibull(x=times, shape=theta[1], scale=theta[2])
   ll <- sum(log(d))
+  
   return(ll)
 }
 ```
@@ -96,6 +99,7 @@ function of `R`:
 
 ```{r warning=FALSE}
 pars <- optim(par=c(1,1), fn=ll_weibull, method="BFGS", control=list(fnscale=-1), times=times)
+
 print(pars$par)
 ```
 
@@ -105,7 +109,7 @@ convince yourself this is the case by playing with `n_sim` in the above.
 
 ### With censoring
 
-Unfortunately, very often in real world datasets some of the outcomes
+Unfortunately, when dealing with real world datasets, many of the outcomes
 are censored because corresponding events fall outside the period of
 observation. In order to simulate such scenario, we proceed as follows:
 
@@ -121,6 +125,7 @@ observation. In order to simulate such scenario, we proceed as follows:
 ```{r}
 c_rate <- 0.07
 cens_times <- rexp(n = n_sim, rate = c_rate)
+
 hist(cens_times, breaks = 25, col = "lightblue")
 ```
 
@@ -136,6 +141,7 @@ element of the vector `c` below will be:
 
 ```{r}
 c <- ifelse(times <= cens_times, 1, 0)
+
 print(paste0("Proportion of censored observations: ", (sum(c==0)/n_sim)*100, "%"))
 ```
 
@@ -144,6 +150,7 @@ and the end of the experiment:
 
 ```{r}
 t <- pmin(times, cens_times)
+
 hist(t, breaks = 25, col = "lightblue")
 ```
 
@@ -176,6 +183,7 @@ ll_weibull_cens <- function(theta, times, cens){
               dweibull(x=times, shape=theta[1], scale=theta[2]), 
               pweibull(q=times, shape=theta[1], scale=theta[2], lower.tail=FALSE))
   ll <- sum(log(l))
+  
   return(ll)
 }
 ```
@@ -237,7 +245,7 @@ We now generate covariate "age", normalized at a mean value of zero, set
 its effect size (`beta_age`), and sample corresponding event times:
 
 ```{r}
-set.seed(123)
+set.seed(239)
 n_sim <- 100
 age <- rnorm(n = n_sim, mean = 0, sd = 1)
 
@@ -257,6 +265,7 @@ c_rate <- 0.1
 cens_times <- rexp(n = n_sim, rate = c_rate)
 c <- ifelse(times <= cens_times, 1, 0)
 t <- pmin(times, cens_times)
+
 print(paste0("Proportion of censored observations: ", (sum(c==0)/n_sim)*100, "%"))
 ```
 
@@ -271,6 +280,7 @@ ll_weibull_cens_cov <- function(theta, times, cens, X){
               dweibull_cov(t=times, alpha=theta[1], mu=theta[2], beta=theta[3], x=X), 
               pweibull_cov(t=times, alpha=theta[1], mu=theta[2], beta=theta[3], x=X, lower.tail=FALSE))
   ll <- sum(log(l))
+  
   return(ll)
 }
 ```
@@ -280,7 +290,17 @@ provide a start value for an additional parameter and to provide the
 `age` vector as value for argument `X`:
 
 ```{r warning=FALSE}
-pars_cens_cov <- optim(par=c(1,0,0), fn=ll_weibull_cens_cov, method="BFGS", control=list(fnscale=-1), times=t, cens=c, X=age)
+pars_cens_cov <-
+  optim(
+    par = c(1, 0, 0),
+    fn = ll_weibull_cens_cov,
+    method = "BFGS",
+    control = list(fnscale = -1),
+    times = t,
+    cens = c,
+    X = age
+  )
+
 print(pars_cens_cov$par)
 ```
 
@@ -306,7 +326,7 @@ This is illustrated in the code below:
 -   For illustration purposes, covariates are ignored for now
 
 ```{r}
-set.seed(123)
+set.seed(239)
 n_sim <- 1000
 theta1 <- c(3, 2)
 theta2 <- c(5, 5)
@@ -401,8 +421,8 @@ introduction to the case study and further context):
 -   Load the `melanoma` dataset from the `boot` package and wrangle it
     to correspond to the required format
 
--   Define covariates for both death and progression risk processes, as
-    well as mixture proportions
+-   Define covariates for both death and disease recurrence risk processes,
+    as well as mixture proportions
 
 -   Define the `ll_weibull_mix_cov` in order to find the optimal
     parameter values by maximum likelihood
@@ -418,10 +438,12 @@ mel_df <- boot::melanoma
 times <- mel_df$time / 365.25
 
 # Defining the event indicator based on the status variable in the datases:
-# - status = 1 corresponds to death      
-# - status = 2 corresponds to recurrence 
-# - status = 3 corresponds to censoring  
-events <- ifelse(mel_df$status==1, 'death', ifelse(mel_df$status==2, 'recur', 'cens'))
+# - status = 1 corresponds to death
+# - status = 2 corresponds to recurrence
+# - status = 3 corresponds to censoring
+events <-
+  ifelse(mel_df$status == 1, 'death',
+         ifelse(mel_df$status == 2, 'recur', 'cens'))
 ```
 
 Next, we define the covariate matrix `X` including the age, sex,
@@ -430,80 +452,93 @@ scale the age and thickness variables using the `scale()` function that
 is part of the standard installation of `R`):
 
 ```{r}
-# Construct the matrix of covariates, adding the incercept column filled with 1's
+# Construct the matrix of covariates, adding the intercept column filled with 1's
 X <- cbind(1, scale(mel_df$age), mel_df$sex, mel_df$ulcer, scale(mel_df$thickness))
 
 # Set the column names accordingly
 colnames(X) <- c('intercept', 'age', 'sex', 'ulcer', 'thickness')
-
 ```
 
 Combining all the above, we can define a custom log-likelihood function
 for this case study as introduced and explained in the manuscript:
 
 ```{r}
-ll_weibull_mix_cov <- function(coefs, times, events, X){
-  
+ll_weibull_mix_cov <- function(coefs, times, events, X) {
   # Extract the coefficients for the different parameters from the vector
   coefs_logit_recur <- coefs[1:5]
   coefs_shape_recur <- coefs[6]
   coefs_scale_recur <- coefs[7:11]
   coefs_shape_death <- coefs[12]
   coefs_scale_death <- coefs[13:17]
-
-  # Obtain the patient-level parameters based on the patient covariates 
+  
+  # Obtain the patient-level parameters based on the patient covariates
   # and the extracted parameter coefficients
   p_recur     <- sigmoid(coefs_logit_recur)
-  shape_recur <- exp(coefs_shape_recur)  
+  shape_recur <- exp(coefs_shape_recur)
   scale_recur <- exp(X %*% coefs_scale_recur)
   shape_death <- exp(coefs_shape_death)
   scale_death <- exp(X %*% coefs_scale_death)
-
-  # Log likelihood for those who recurred 
-  ll_recur <- p_recur * dweibull(times, shape_recur, scale_recur)^(events == 'recur')
-
+  
+  # Log likelihood for those who recurred
+  ll_recur <-
+    p_recur * dweibull(times, shape_recur, scale_recur) ^ (events == 'recur')
+  
   # Log likelihood for those who deceased
-  ll_death <- (1-p_recur) * dweibull(times, shape_death, scale_death)^(events == 'death')
-
+  ll_death <-
+    (1 - p_recur) * dweibull(times, shape_death, scale_death) ^ (events == 'death')
+  
   # Log likelihood for censored event
-  ll_cens <- (p_recur * pweibull(times, shape_recur, scale_recur, FALSE) +
-                  (1-p_recur) * pweibull(times, shape_death, scale_death, FALSE))^(events == 'cens')
+  ll_cens <-
+    (
+      p_recur * pweibull(times, shape_recur, scale_recur, FALSE) +
+        (1 - p_recur) * pweibull(times, shape_death, scale_death, FALSE)
+    ) ^ (events == 'cens')
   
   # Combine the log likelihoods
   ll <- sum(log(ll_recur) + log(ll_death) + log(ll_cens))
-
+  
   return(ll)
-
+  
 }
-
 ```
 
 We can now perform the optimization using the `optim()` function.
 Additionally, the code below demonstrates how it can be performed using
-the `maxLik()` function from the `maxLim` package, which was developed
+the `maxLik()` function from the `maxLik` package, which was developed
 for this exact purpose and has some benefits like returning the
-variance-covariance matrix, as discussed in the manuscript. Different
-than for previous illustrations above, we first define the start values
-for the parameters and give them names, so that the results can be
-interpreted more easily:
+variance-covariance matrix, as discussed in the manuscript. 
+In this case, we first define the start values for the parameters and
+give them names, so that the results can be interpreted more easily:
 
 ```{r warning=FALSE}
 
 # Define the start values for the coefficients and name them
 start_values <- setNames(
   object = rep(x = 0, times = 17),
-  nm = c('logit_recur_intercept', 'logit_recur_age', 'logit_recur_ sex', 
-       'logit_recur_ ulceration', 'logit_recur_thickness', 'logshape_recur',
-       'logscale_recur_intercept', 'logscale_recur_age', 
-       'logscale_recur_ sex', 'logscale _recur_ ulceration', 
-       'logscale_recur_thickness', 'logshape_death', 
-       'logscale_death_intercept', 'logscale_death_age', 
-       'logscale_death_ sex', 'logscale_death_ ulceration', 
-       'logscale_death_thickness')
+  nm = c(
+    'logit_recur_intercept', 'logit_recur_age',
+    'logit_recur_ sex', 'logit_recur_ ulceration',
+    'logit_recur_thickness', 'logshape_recur',
+    'logscale_recur_intercept','logscale_recur_age',
+    'logscale_recur_ sex','logscale _recur_ ulceration',
+    'logscale_recur_thickness', 'logshape_death',
+    'logscale_death_intercept', 'logscale_death_age',
+    'logscale_death_ sex', 'logscale_death_ ulceration',
+    'logscale_death_thickness'
+  )
 )
 
 # Perform the likelihood optimization using the optim() function
-pars_optim <- optim(par=start_values, fn=ll_weibull_mix_cov, method="BFGS", control=list(fnscale=-1), times=times, events=events, X=X)
+pars_optim <-
+  optim(
+    par = start_values,
+    fn = ll_weibull_mix_cov,
+    method = "BFGS",
+    control = list(fnscale = -1),
+    times = times,
+    events = events,
+    X = X
+  )
 
 # Perform the likelihood optimization using the maxLik() function
 pars_maxLik <- maxLik(
@@ -516,11 +551,10 @@ pars_maxLik <- maxLik(
 
 # Extract and compare the coefficients
 cbind(optim = pars_optim$par, maxLik = coef(pars_maxLik))
-
 ```
 
 As you can see and as expected, the estimates of the parameters are very
-similar regardless of the optimisation function used. The estimated
+similar regardless of the optimization function used. The estimated
 parameters can now be used in a discrete event simulation to model the
 competing events of recurrence and death.
 
@@ -544,3 +578,7 @@ matrix is obtained as well. The above material should be sufficient for
 anyone to get a good grasp of what is happening under the hood of this
 function through the extensive comments that it includes. We look
 forward to you trying it out and letting us know what you think!
+
+```{r}
+sessionInfo()
+```
