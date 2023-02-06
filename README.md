@@ -6,11 +6,11 @@ This repository contains the code and data associated with our paper *Estimating
 
 #### 📖 Abstract
 
-**Background**: Although several strategies for modelling competing events in discrete event simulations (DES) exist, a methodological gap for the event-specific probabilities and distributions (ESPD) approach when dealing with censored data remains. This study defines and illustrates the ESPD strategy.
+**Background**: Although several strategies for modelling competing events in discrete event simulation (DES) exist, a methodological gap for the event-specific probabilities and distributions (ESPD) approach when dealing with censored data remains. This study defines and illustrates the ESPD strategy for censored data.
 
-**Methods**: The ESPD approach assumes that events are generated through a two-step process. First, the type of event is selected according to some (unknown) mixture proportions. Next, times of occurrence are sampled from a corresponding survival distribution. Both of these steps can be modelled based on covariates. Performance was evaluated through a simulation study, considering sample size and levels of censoring. Additionally, a case study was conducted to assess the approach's ability to produce realistic results, and to demonstrate its implementation using both frequentist and Bayesian frameworks in R.
+**Methods**: The ESPD approach assumes that events are generated through a two-step process. First, the type of event is selected according to some (unknown) mixture proportions. Next, the times of occurrence of the events are sampled from a corresponding survival distribution. Both of these steps can be modelled based on covariates. Performance was evaluated through a simulation study, considering sample size and levels of censoring. Additionally, an oncology-related case study was conducted to assess the ability to produce realistic results, and to demonstrate its implementation using both frequentist and Bayesian frameworks in R.
 
-**Results**: The simulation study showed good performance of the ESPD approach, with accuracy decreasing as sample size and censoring levels increased. The average relative absolute error of the event probability (95%-confidence interval) ranged from 0.04 (0.00; 0.10) to 0.23 (0.01; 0.66) for 60% censoring and sample size 50. The approach yielded realistic results in the case study.
+**Results**: The simulation study showed good performance of the ESPD approach, with accuracy decreasing as sample sizes decreased and censoring levels increased. The average relative absolute error of the event probability (95%-confidence interval) ranged from 0.04 (0.00; 0.10) to 0.23 (0.01; 0.66) for 60% censoring and sample size 50. The approach yielded realistic results in the case study.
 
 **Conclusion**: The ESPD approach can be used to model competing events in DES based on censored data. Further research is warranted to compare the approach to other modelling approaches for DES, and to evaluate its usefulness in estimating cumulative event incidences in a broader context.
 
@@ -32,11 +32,13 @@ This repository contains the code and data associated with our paper *Estimating
 └── README.md
 ```
 
+
 #### 🎬 Simulation Study
 
 Performance was evaluated through a simulation study, considering sample size and levels of censoring.
 
 The considered hypothetical scenario included k=2 competing events: recurrence (recur) and death before recurrence (death).
+
 
 #### 🔧 Case study
 
@@ -46,10 +48,26 @@ The repository contains **two ESPD implementations** in R, both incorporating a 
 
 2.  `case_study_bayesian.Rmd` is the notebook of the Bayesian implementation, which uses the Stan model located in the *bayes_model* folder.
 
+
 #### 💪 Our ready-made function
 
 We provide a general frequentist function that can be used to apply the ESPD approach for modelling two competing events: `ESPD_frequentist.R`, in the *ready_made_function* folder.
 
 It provides all the functionalities one may require, such as allowing for different parametric families of distributions for individual risks.
+
+
+#### 🎯 Where to go to? 
+
+```mermaid
+graph TD
+    A(Frequentist) --> C((A-to-Z competing risks))
+    A(Frequentist) --> D((*Melanoma* case study))
+    B(Bayesian) --> E((*Melanoma* case study))
+    B(Bayesian) --> F((Stan model))
+    C --> G{step_by_step_frequentist.Rmd}
+    D --> G{step_by_step_frequentist.Rmd}
+    E --> H{case_study_bayesian.Rmd}
+    F --> I{weibull_mix_cov.stan}
+```
 
 Please get in touch with any questions or suggestions!
